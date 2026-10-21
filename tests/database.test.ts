@@ -8,6 +8,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const migration = readFileSync(path.resolve(__dirname, "../supabase/migrations/0001_init.sql"), "utf8");
+const photosMigration = readFileSync(path.resolve(__dirname, "../supabase/migrations/0002_wishlist_photos.sql"), "utf8");
 
 let pg: PGlite;
 
@@ -17,6 +18,9 @@ beforeAll(async () => {
     create role anon nologin;
     create role authenticated nologin;
     create role service_role nologin bypassrls;
+    -- Versión mínima del esquema storage de Supabase para probar 0002.
+    create schema storage;
+    create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
   `);
 });
 
@@ -29,6 +33,8 @@ async function fresh(): Promise<void> {
     grant usage on schema public to anon, authenticated, service_role;
   `);
   await pg.exec(migration);
+  await pg.exec(photosMigration);
+  await pg.exec(photosMigration); // se puede ejecutar dos veces
 }
 
 async function addParticipant(name: string, code: string, targetId: string | null = null, hasPaper = false): Promise<string> {
@@ -85,6 +91,33 @@ describe("restricciones de datos", () => {
     expect(row.rows[0]).toEqual({ has_existing_assignment: true, reported_target_id: null, reported_target_name: "alguien" });
     const confirmed = await pg.query<{ reported_target_confirmed: boolean }>("select reported_target_confirmed from participants where id = $1", [brendy]);
     expect(confirmed.rows[0].reported_target_confirmed).toBe(false);
+  });
+});
+
+describe("fotos de la lista de deseos", () => {
+  it("el bucket es privado y solo acepta imágenes", async () => {
+    const result = await pg.query<{ public: boolean; allowed_mime_types: string[] }>("select public, allowed_mime_types from storage.buckets where id = 'wishlist'");
+    expect(result.rows[0].public).toBe(false);
+    expect(result.rows[0].allowed_mime_types).toEqual(["image/jpeg", "image/png", "image/webp"]);
+  });
+
+  it("máximo 4 fotos y siempre dentro de la carpeta propia", async () => {
+    const a = await addParticipant("Persona A", "A00000001");
+    const b = await addParticipant("Persona B", "A00000002");
+    const own = (n: number) => Array.from({ length: n }, (_, i) => `${a}/${i}.jpg`);
+    await pg.query("update participants set wishlist_photos = $1 where id = $2", [own(4), a]);
+    await expect(pg.query("update participants set wishlist_photos = $1 where id = $2", [own(5), a])).rejects.toThrow(/photos_max/);
+    await expect(pg.query("update participants set wishlist_photos = $1 where id = $2", [[`${b}/x.jpg`], a])).rejects.toThrow(/photos_owner/);
+    await expect(pg.query("update participants set wishlist_photos = $1 where id = $2", [[`${a}/../${b}/x.jpg`], a])).rejects.toThrow(/photos_owner/);
+  });
+
+  it("después del sorteo las fotos solo cambian si la administradora lo permite", async () => {
+    const a = await addParticipant("Persona A", "A00000001");
+    const b = await addParticipant("Persona B", "A00000002");
+    await commit([a, b], [[a, b, "GENERATED"], [b, a, "GENERATED"]]);
+    await expect(pg.query("update participants set wishlist_photos = $1 where id = $2", [[`${a}/1.jpg`], a])).rejects.toThrow(/GAME_LOCKED/);
+    await pg.query("update game_settings set allow_wishlist_edit_after_lock = true");
+    await pg.query("update participants set wishlist_photos = $1 where id = $2", [[`${a}/1.jpg`], a]);
   });
 });
 
@@ -219,11 +252,14 @@ describe("permisos y RLS", () => {
     await pg.exec("reset role");
   });
 
-  it("el servidor (service_role) sí puede operar", async () => {
-    await addParticipant("Ana", "A00123456");
+  it("el servidor (service_role) sí puede operar: registrar, editar fotos y sortear", async () => {
     await pg.exec("set role service_role");
+    const a = await addParticipant("Persona A", "A00000001");
+    const b = await addParticipant("Persona B", "A00000002");
+    await pg.query("update participants set wishlist_photos = $1 where id = $2", [[`${a}/1.jpg`], a]);
+    await commit([a, b], [[a, b, "GENERATED"], [b, a, "GENERATED"]]);
     const result = await pg.query("select id from participants");
-    expect(result.rows).toHaveLength(1);
+    expect(result.rows).toHaveLength(2);
     await pg.exec("reset role");
   });
 });

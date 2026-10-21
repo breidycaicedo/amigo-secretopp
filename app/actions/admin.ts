@@ -10,6 +10,7 @@ import { DataError, getParticipantById, getSettings, listParticipants, resolvePe
 import { ERRORS, messageForDbError } from "@/lib/errors";
 import { field } from "@/lib/form";
 import { canRunAssignment } from "@/lib/game-rules";
+import { removePhotoFiles } from "@/lib/photos";
 import { db } from "@/lib/supabase";
 
 const uuid = z.string().uuid();
@@ -146,9 +147,13 @@ export async function deleteParticipantAction(_prev: ActionState, formData: Form
     if (!canRunAssignment(settings.status)) {
       return { ok: false, message: ERRORS.GAME_LOCKED };
     }
+    const existing = await getParticipantById(participantId.data);
     const { error } = await db().from("participants").delete().eq("id", participantId.data);
     if (error) {
       return { ok: false, message: messageForDbError(error) };
+    }
+    if (existing !== null) {
+      await removePhotoFiles(existing.wishlist_photos);
     }
     await resolvePendingReferences();
   } catch (error) {

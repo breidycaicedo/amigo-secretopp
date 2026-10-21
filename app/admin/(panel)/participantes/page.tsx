@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DeleteParticipantButton, LinkReferenceForm } from "@/components/admin/participant-actions";
 import { Badge, Card } from "@/components/ui";
 import { getSettings, listParticipants } from "@/lib/data";
+import { signPhotos } from "@/lib/photos";
 import { REVIEW_LABELS, buildAdminSummary, type ParticipantReview } from "@/lib/review";
 import type { ParticipantReviewStatus, PersonOption } from "@/types/domain";
 
@@ -14,6 +15,29 @@ const STATUS_TONES: Record<ParticipantReviewStatus, "pine" | "amber" | "berry" |
   NEEDS_REVIEW: "gold",
   CONFLICT: "berry",
 };
+
+function Thumbs({ paths, urls }: { paths: string[]; urls: Map<string, string> }) {
+  const items: { path: string; url: string }[] = [];
+  for (const path of paths) {
+    const url = urls.get(path);
+    if (url !== undefined) {
+      items.push({ path, url });
+    }
+  }
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <a key={item.path} href={item.url} target="_blank" rel="noopener noreferrer">
+          {/* eslint-disable-next-line @next/next/no-img-element -- enlace firmado temporal */}
+          <img src={item.url} alt="Foto de la lista de deseos" loading="lazy" className="h-14 w-14 rounded-lg object-cover ring-1 ring-line" />
+        </a>
+      ))}
+    </div>
+  );
+}
 
 function Reported({ review }: { review: ParticipantReview }) {
   if (!review.hasPaper) {
@@ -52,6 +76,15 @@ export default async function ParticipantsPage() {
   const [settings, rows] = await Promise.all([getSettings(), listParticipants()]);
   const summary = buildAdminSummary(rows, settings.expected_participants);
   const open = settings.status === "REGISTRATION_OPEN";
+  const allPaths: string[] = [];
+  const photosById = new Map<string, string[]>();
+  for (const row of rows) {
+    photosById.set(row.id, row.wishlist_photos);
+    for (const path of row.wishlist_photos) {
+      allPaths.push(path);
+    }
+  }
+  const photoUrls = await signPhotos(allPaths);
   const people: PersonOption[] = rows
     .map((row) => ({ id: row.id, name: row.name }))
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -97,10 +130,11 @@ export default async function ParticipantsPage() {
                     <Reported review={review} />
                   </dd>
                 </dl>
-                {review.wishlist ? (
+                {review.wishlist || (photosById.get(review.id) ?? []).length > 0 ? (
                   <details className="text-sm">
                     <summary className="cursor-pointer font-semibold text-berry-700">Lista de deseos</summary>
                     <p className="mt-2 whitespace-pre-line text-muted">{review.wishlist}</p>
+                    <Thumbs paths={photosById.get(review.id) ?? []} urls={photoUrls} />
                   </details>
                 ) : null}
                 <Actions review={review} open={open} people={people} />
@@ -126,10 +160,14 @@ export default async function ParticipantsPage() {
                   <tr key={review.id} className="align-top transition hover:bg-cream/40">
                     <td className="px-5 py-4">
                       <p className="font-semibold">{review.name}</p>
-                      {review.wishlist ? (
+                      {review.wishlist || (photosById.get(review.id) ?? []).length > 0 ? (
                         <details className="mt-1">
-                          <summary className="cursor-pointer text-xs font-semibold text-berry-700">Lista de deseos</summary>
+                          <summary className="cursor-pointer text-xs font-semibold text-berry-700">
+                            Lista de deseos
+                            {(photosById.get(review.id) ?? []).length > 0 ? ` · ${(photosById.get(review.id) ?? []).length} 📷` : ""}
+                          </summary>
                           <p className="mt-1 max-w-xs whitespace-pre-line text-xs text-muted">{review.wishlist}</p>
+                          <Thumbs paths={photosById.get(review.id) ?? []} urls={photoUrls} />
                         </details>
                       ) : null}
                     </td>

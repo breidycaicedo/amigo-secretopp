@@ -33,6 +33,7 @@ function row(partial: Partial<ParticipantRow> & { id: string; name: string }): P
     name_normalized: normalizeName(partial.name),
     student_code: "A00000000",
     wishlist: "",
+    wishlist_photos: [],
     has_existing_assignment: false,
     reported_target_name: null,
     reported_target_id: null,

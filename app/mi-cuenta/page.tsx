@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ProfileForm } from "@/components/forms/profile-form";
 import { GiftMark } from "@/components/gift-mark";
+import { PhotoGrid } from "@/components/photo-grid";
+import { WishlistPhotos } from "@/components/wishlist-photos";
 import { LogoutButton } from "@/components/logout-button";
 import { PageShell } from "@/components/page-shell";
 import { Badge, Card } from "@/components/ui";
@@ -8,6 +10,7 @@ import { WishlistView } from "@/components/wishlist-view";
 import { requireParticipantPage } from "@/lib/auth";
 import { getGiftFor, getSettings } from "@/lib/data";
 import { canEditProfile, canEditWishlist, canSeeResult } from "@/lib/game-rules";
+import { signedPhotosFor } from "@/lib/photos";
 
 export const metadata: Metadata = { title: "Mi cuenta" };
 export const dynamic = "force-dynamic";
@@ -19,6 +22,11 @@ export default async function MyAccountPage() {
   const assigned = canSeeResult(settings.status);
   // Solo se consulta la persona que le corresponde a ESTE participante.
   const gift = assigned ? await getGiftFor(me.id) : null;
+  // Enlaces firmados temporales: solo de sus propias fotos y las de su amigo secreto.
+  const [myPhotos, giftPhotos] = await Promise.all([
+    signedPhotosFor(me.wishlist_photos),
+    gift ? signedPhotosFor(gift.wishlist_photos) : Promise.resolve([]),
+  ]);
   const firstName = me.name.split(" ")[0];
 
   const editMode = canEditProfile(settings.status)
@@ -48,7 +56,15 @@ export default async function MyAccountPage() {
             </p>
             <div className="mx-auto mt-8 max-w-md text-left">
               <p className="mb-3 text-sm font-semibold text-ink">Estas son sus ideas de regalo:</p>
-              <WishlistView wishlist={gift.wishlist} emptyText="Aún no escribió su lista de deseos. ¡Sorpréndela/o!" />
+              {gift.wishlist.trim().length > 0 || giftPhotos.length === 0 ? (
+                <WishlistView wishlist={gift.wishlist} emptyText="Aún no escribió su lista de deseos. ¡Sorpréndela/o!" />
+              ) : null}
+              {giftPhotos.length > 0 ? (
+                <div className="mt-5">
+                  <p className="mb-3 text-sm font-semibold text-ink">Fotos de inspiración:</p>
+                  <PhotoGrid photos={giftPhotos} />
+                </div>
+              ) : null}
             </div>
           </Card>
         ) : (
@@ -88,7 +104,10 @@ export default async function MyAccountPage() {
                 : "El sorteo está cerrado; ya no se pueden hacer cambios."}
           </p>
           {editMode === null ? (
-            <WishlistView wishlist={me.wishlist} emptyText="No escribiste una lista de deseos." />
+            <div className="space-y-4">
+              <WishlistView wishlist={me.wishlist} emptyText="No escribiste una lista de deseos." />
+              <PhotoGrid photos={myPhotos} />
+            </div>
           ) : (
             <ProfileForm
               mode={editMode}
@@ -101,6 +120,11 @@ export default async function MyAccountPage() {
               }}
             />
           )}
+          {editMode !== null ? (
+            <div className="mt-6 border-t border-line pt-6">
+              <WishlistPhotos photos={myPhotos} />
+            </div>
+          ) : null}
         </Card>
       </div>
     </PageShell>

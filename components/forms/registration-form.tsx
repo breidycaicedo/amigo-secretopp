@@ -29,6 +29,7 @@ export function RegistrationForm() {
             ? "Guardamos tu papelito. La administradora lo validará cuando realice la asignación definitiva."
             : "Tu información fue registrada. La administradora realizará las asignaciones faltantes cuando todos estén registrados."}
         </p>
+        <p className="mt-3 text-sm text-muted">En «Mi cuenta» también puedes agregar fotos de lo que te gustaría recibir 📷</p>
         <ButtonLink href="/mi-cuenta" size="lg" className="mt-6 w-full">
           Ir a mi cuenta
         </ButtonLink>

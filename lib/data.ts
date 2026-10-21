@@ -128,7 +128,9 @@ export async function resolvePendingReferences(): Promise<void> {
 }
 
 /** La persona a quien le regala el participante (solo su nombre y deseos). */
-export async function getGiftFor(giverId: string): Promise<{ name: string; wishlist: string } | null> {
+export async function getGiftFor(
+  giverId: string,
+): Promise<{ name: string; wishlist: string; wishlist_photos: string[] } | null> {
   const { data: assignment, error } = await db()
     .from("assignments")
     .select("receiver_id")
@@ -142,7 +144,7 @@ export async function getGiftFor(giverId: string): Promise<{ name: string; wishl
   }
   const { data: receiver, error: receiverError } = await db()
     .from("participants")
-    .select("name, wishlist")
+    .select("name, wishlist, wishlist_photos")
     .eq("id", assignment.receiver_id)
     .single();
   if (receiverError) {

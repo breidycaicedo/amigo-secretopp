@@ -27,6 +27,8 @@ export type ParticipantRow = {
   name_normalized: string;
   student_code: string;
   wishlist: string;
+  /** Rutas en el bucket privado "wishlist" (máximo 4). */
+  wishlist_photos: string[];
   has_existing_assignment: boolean;
   reported_target_name: string | null;
   reported_target_id: string | null;
@@ -67,6 +69,7 @@ export type Database = {
           name_normalized: string;
           student_code: string;
           wishlist?: string;
+          wishlist_photos?: string[];
           has_existing_assignment?: boolean;
           reported_target_name?: string | null;
           reported_target_id?: string | null;

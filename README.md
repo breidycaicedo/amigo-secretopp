@@ -33,7 +33,7 @@ Todos se registran → la administradora revisa → pulsa «ASIGNAR TODOS»
   - Si tienen papelito, escriben el nombre: el sistema sugiere participantes registrados. Si el nombre coincide con varias personas («Gabriela»), pide elegir cuál. Si la persona aún no se registra, el papelito queda como **referencia pendiente** y se vincula sola cuando esa persona se registre.
   - Si no tienen papelito, quedan **pendientes** hasta el sorteo.
 - `/login` — entran con su código; la sesión dura 14 días.
-- `/mi-cuenta` — editan sus datos mientras el registro esté abierto. Después del sorteo ven **solo** a quién le regalan y su lista de deseos.
+- `/mi-cuenta` — editan sus datos mientras el registro esté abierto y pueden subir hasta **4 fotos** de lo que les gustaría recibir (se comprimen solas en el celular). Después del sorteo ven **solo** a quién le regalan y su lista de deseos.
 
 **Administradora**
 
@@ -61,6 +61,7 @@ Todos se registran → la administradora revisa → pulsa «ASIGNAR TODOS»
 1. En el menú izquierdo: **SQL Editor** → **New query**.
 2. Abre el archivo [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql), copia **todo** su contenido y pégalo.
 3. Pulsa **Run**. Debe decir *Success. No rows returned*.
+4. Repite con [`supabase/migrations/0002_wishlist_photos.sql`](supabase/migrations/0002_wishlist_photos.sql) (fotos de la lista de deseos): **New query** → pegar → **Run**.
 4. (Opcional) En **Table Editor** verás las tablas `participants`, `assignments`, `game_settings` y `login_attempts`, todas con el candado de RLS activo.
 
 > El script se puede volver a ejecutar sin romper nada (es idempotente).
@@ -199,6 +200,7 @@ npm run build      # build de producción (igual que Vercel)
 | **Sesiones** | Cookie `httpOnly`, `SameSite=Lax`, `Secure` en producción, firmada (JWT HS256) con `SESSION_SECRET`. El ID del participante sale **siempre** de la cookie firmada, nunca de la URL ni del formulario. Las sesiones de administración duran 8 horas y se invalidan si cambia `ADMIN_CODE`. |
 | **Rutas** | `proxy.ts` bloquea `/admin/*` (403 para participantes) y `/mi-cuenta`. Además, cada página y cada Server Action vuelve a verificar la sesión (defensa en profundidad). |
 | **Datos mínimos** | `/mi-cuenta` consulta solo el nombre y la lista de deseos de *su* amigo secreto. El buscador de nombres del registro solo devuelve id y nombre (máx. 6 resultados), nunca códigos, deseos ni asignaciones. |
+| **Fotos** | Bucket **privado** de Supabase Storage. Solo el servidor sube y borra; el navegador recibe enlaces firmados que vencen en 1 hora y solo para la persona dueña, quien le regala y la administradora. El servidor verifica el formato real del archivo (no el nombre), arma la ruta dentro de la carpeta de la persona y la base de datos limita a 4 fotos. Las fotos se recomprimen en el navegador, lo que también borra metadatos como la ubicación GPS. |
 | **Fuerza bruta** | Máximo 10 intentos fallidos de entrada por IP cada 15 minutos (5 para Administración). Las IP se guardan como hash. |
 | **Secretos** | Los módulos con secretos importan `server-only`: si un componente del navegador los importara, el build fallaría. `ADMIN_CODE` no aparece en ningún archivo del repositorio. |
 
