@@ -8,12 +8,24 @@ import { GiftMark } from "../gift-mark";
 import { SubmitButton } from "../submit-button";
 import { Alert, ButtonLink, Card, Field, inputClasses } from "../ui";
 import { PaperFields, type PaperState } from "./paper-fields";
+import { PhotoPicker, type PickedPhoto } from "./photo-picker";
 import { StudentCodeInput } from "./student-code-input";
 
 const INITIAL: ActionState = { ok: false };
 
 export function RegistrationForm() {
-  const [state, formAction] = useActionState(registerAction, INITIAL);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  // Las fotos (ya comprimidas) se envían junto con el resto del formulario.
+  const [state, formAction] = useActionState(async (previous: ActionState, formData: FormData) => {
+    for (const photo of photos) {
+      formData.append("photos", photo.blob, "foto.jpg");
+    }
+    try {
+      return await registerAction(previous, formData);
+    } catch {
+      return { ok: false, message: "No pudimos conectarnos. Revisa tu conexión e intenta de nuevo." };
+    }
+  }, INITIAL);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [wishlist, setWishlist] = useState("");
@@ -29,7 +41,7 @@ export function RegistrationForm() {
             ? "Guardamos tu papelito. La administradora lo validará cuando realice la asignación definitiva."
             : "Tu información fue registrada. La administradora realizará las asignaciones faltantes cuando todos estén registrados."}
         </p>
-        <p className="mt-3 text-sm text-muted">En «Mi cuenta» también puedes agregar fotos de lo que te gustaría recibir 📷</p>
+        {state.message ? <p className="mt-3 text-sm font-medium text-amber-700">{state.message}</p> : null}
         <ButtonLink href="/mi-cuenta" size="lg" className="mt-6 w-full">
           Ir a mi cuenta
         </ButtonLink>
@@ -77,6 +89,7 @@ export function RegistrationForm() {
             className={`${inputClasses} resize-y leading-relaxed`}
           />
         </Field>
+        <PhotoPicker photos={photos} onChange={setPhotos} error={errors.photos} />
       </Card>
 
       <Card>

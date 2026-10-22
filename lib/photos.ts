@@ -1,4 +1,6 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import { MAX_PHOTO_BYTES, MAX_PHOTOS, detectImageType, type ImageType } from "./image-type";
 import { db } from "./supabase";
 
 /**
@@ -55,4 +57,54 @@ export async function uploadPhotoFile(path: string, bytes: Uint8Array, contentTy
     .storage.from(PHOTO_BUCKET)
     .upload(path, bytes, { contentType, upsert: false, cacheControl: "3600" });
   return error === null;
+}
+
+export type ValidPhoto = { bytes: Uint8Array; type: ImageType };
+
+/** Valida un archivo recibido: tamaño y formato REAL (por sus bytes). */
+export async function readPhoto(entry: FormDataEntryValue | null): Promise<ValidPhoto | string> {
+  if (!(entry instanceof File) || entry.size === 0) {
+    return "Elige una foto.";
+  }
+  if (entry.size > MAX_PHOTO_BYTES) {
+    return "La foto es muy pesada (máximo 3 MB).";
+  }
+  const bytes = new Uint8Array(await entry.arrayBuffer());
+  const type = detectImageType(bytes);
+  if (type === null) {
+    return "Ese archivo no es una imagen compatible. Usa JPG, PNG o WebP.";
+  }
+  return { bytes, type };
+}
+
+/** Lee todas las fotos de un formulario (campo "photos"). */
+export async function readPhotos(formData: FormData): Promise<ValidPhoto[] | string> {
+  const entries = formData.getAll("photos");
+  if (entries.length > MAX_PHOTOS) {
+    return `Puedes subir máximo ${MAX_PHOTOS} fotos.`;
+  }
+  const photos: ValidPhoto[] = [];
+  for (const entry of entries) {
+    const photo = await readPhoto(entry);
+    if (typeof photo === "string") {
+      return photo;
+    }
+    photos.push(photo);
+  }
+  return photos;
+}
+
+/**
+ * Sube fotos a la carpeta del participante. La ruta la arma el servidor.
+ * Devuelve las rutas que sí se subieron.
+ */
+export async function storePhotos(participantId: string, photos: readonly ValidPhoto[]): Promise<string[]> {
+  const paths: string[] = [];
+  for (const photo of photos) {
+    const path = `${participantId}/${randomUUID()}.${photo.type.ext}`;
+    if (await uploadPhotoFile(path, photo.bytes, photo.type.mime)) {
+      paths.push(path);
+    }
+  }
+  return paths;
 }

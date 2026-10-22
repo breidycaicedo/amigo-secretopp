@@ -9,6 +9,7 @@ import { field } from "@/lib/form";
 import { canEditProfile, canEditWishlist, canRegister } from "@/lib/game-rules";
 import { normalizeName } from "@/lib/names";
 import { resolvePaper } from "@/lib/paper";
+import { readPhotos, removePhotoFiles, storePhotos } from "@/lib/photos";
 import { startSession } from "@/lib/session";
 import { db } from "@/lib/supabase";
 import { fieldErrorsFrom, nameSchema, paperSchema, studentCodeSchema, wishlistSchema } from "@/lib/validation";
@@ -55,6 +56,12 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
     };
   }
 
+  const photos = await readPhotos(formData);
+  if (typeof photos === "string") {
+    return { ok: false, fieldErrors: { photos } };
+  }
+  let photosFailed = false;
+
   try {
     const settings = await getSettings();
     if (!canRegister(settings.status)) {
@@ -92,6 +99,19 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
       return { ok: false, message: messageForDbError(error) };
     }
 
+    // El registro ya quedó guardado; si una foto falla, se puede subir luego en «Mi cuenta».
+    if (photos.length > 0) {
+      const paths = await storePhotos(created.id, photos);
+      photosFailed = paths.length < photos.length;
+      if (paths.length > 0) {
+        const saved = await db().from("participants").update({ wishlist_photos: paths }).eq("id", created.id);
+        if (saved.error) {
+          await removePhotoFiles(paths);
+          photosFailed = true;
+        }
+      }
+    }
+
     await resolvePendingReferences();
     await startSession({ role: "participant", participantId: created.id });
   } catch (error) {
@@ -101,6 +121,7 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
   revalidatePath("/admin", "layout");
   return {
     ok: true,
+    message: photosFailed ? "Algunas fotos no se pudieron subir. Puedes agregarlas desde «Mi cuenta»." : undefined,
     registered: { name: basics.data.name, hasExistingAssignment: paper.data.hasExistingAssignment },
   };
 }

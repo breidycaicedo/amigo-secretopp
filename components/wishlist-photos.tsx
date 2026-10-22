@@ -2,37 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { deletePhotoAction, uploadPhotoAction } from "@/app/actions/photos";
+import { UNREADABLE_IMAGE, compressImage } from "@/lib/compress-image";
 import { MAX_PHOTOS } from "@/lib/image-type";
 import type { ActionState } from "@/types/domain";
 import { PhotoGrid, type PhotoItem } from "./photo-grid";
 import { Spinner } from "./submit-button";
 import { cx } from "./ui";
-
-const MAX_SIDE = 1600;
-const QUALITY = 0.82;
-
-/**
- * Reduce la foto en el navegador antes de subirla (las fotos del celular
- * pesan 3–8 MB; así quedan en ~300 KB) y quita los metadatos (GPS, etc.).
- */
-async function compress(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (context === null) {
-    throw new Error("canvas");
-  }
-  context.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("blob"))), "image/jpeg", QUALITY);
-  });
-}
 
 /** Fotos de la lista de deseos propia: subir y borrar. */
 export function WishlistPhotos({ photos }: { photos: PhotoItem[] }) {
@@ -49,9 +24,9 @@ export function WishlistPhotos({ photos }: { photos: PhotoItem[] }) {
     startTransition(async () => {
       let blob: Blob;
       try {
-        blob = await compress(file);
+        blob = await compressImage(file);
       } catch {
-        setState({ ok: false, message: "No pudimos leer esa imagen. Prueba con una foto JPG o PNG (o una captura de pantalla)." });
+        setState({ ok: false, message: UNREADABLE_IMAGE });
         return;
       }
       const data = new FormData();

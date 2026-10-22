@@ -1,6 +1,5 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import type { ActionState } from "@/types/domain";
 import { currentParticipant } from "@/lib/auth";
@@ -8,8 +7,8 @@ import { DataError, getSettings } from "@/lib/data";
 import { ERRORS, messageForDbError } from "@/lib/errors";
 import { field } from "@/lib/form";
 import { canEditWishlist } from "@/lib/game-rules";
-import { MAX_PHOTO_BYTES, MAX_PHOTOS, detectImageType } from "@/lib/image-type";
-import { removePhotoFiles, uploadPhotoFile } from "@/lib/photos";
+import { MAX_PHOTOS } from "@/lib/image-type";
+import { readPhoto, removePhotoFiles, storePhotos } from "@/lib/photos";
 import { db } from "@/lib/supabase";
 
 function refresh(): void {
@@ -39,24 +38,15 @@ export async function uploadPhotoAction(formData: FormData): Promise<ActionState
       return { ok: false, message: `Puedes subir máximo ${MAX_PHOTOS} fotos. Borra una para agregar otra.` };
     }
 
-    const file = formData.get("photo");
-    if (!(file instanceof File) || file.size === 0) {
-      return { ok: false, message: "Elige una foto." };
+    const photo = await readPhoto(formData.get("photo"));
+    if (typeof photo === "string") {
+      return { ok: false, message: photo };
     }
-    if (file.size > MAX_PHOTO_BYTES) {
-      return { ok: false, message: "La foto es muy pesada (máximo 3 MB)." };
-    }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const type = detectImageType(bytes);
-    if (type === null) {
-      return { ok: false, message: "Ese archivo no es una imagen compatible. Usa JPG, PNG o WebP." };
-    }
-
-    // La ruta la arma el servidor: siempre dentro de la carpeta del participante.
-    const path = `${me.id}/${randomUUID()}.${type.ext}`;
-    if (!(await uploadPhotoFile(path, bytes, type.mime))) {
+    const stored = await storePhotos(me.id, [photo]);
+    if (stored.length === 0) {
       return { ok: false, message: "No pudimos subir la foto. Intenta de nuevo." };
     }
+    const path = stored[0];
 
     const { error } = await db()
       .from("participants")
