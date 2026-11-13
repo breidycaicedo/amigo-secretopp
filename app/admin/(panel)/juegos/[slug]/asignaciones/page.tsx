@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
 import { Reveal } from "@/components/admin/reveal";
 import { Badge, Card } from "@/components/ui";
-import { getSettings, listAssignments, listParticipants } from "@/lib/data";
+import { notFound } from "next/navigation";
+import { getGameBySlug, getSettings, listAssignments, listParticipants } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Asignaciones" };
 
-export default async function AssignmentsPage() {
-  const settings = await getSettings();
+type GamePageProps = { params: Promise<{ slug: string }> };
+
+export default async function AssignmentsPage({ params }: GamePageProps) {
+  const { slug } = await params;
+  const game = await getGameBySlug(slug);
+  if (game === null) {
+    notFound();
+  }
+  const settings = await getSettings(game.id);
 
   if (settings.status !== "ASSIGNED") {
-    const rows = await listParticipants();
+    const rows = await listParticipants(game.id);
     const names = new Map(rows.map((row) => [row.id, row.name]));
     const reported = rows.filter((row) => row.has_existing_assignment);
     return (
@@ -43,7 +51,7 @@ export default async function AssignmentsPage() {
     );
   }
 
-  const assignments = await listAssignments();
+  const assignments = await listAssignments(game.id);
   const existing = assignments.filter((assignment) => assignment.source === "EXISTING").length;
 
   return (

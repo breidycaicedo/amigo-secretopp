@@ -43,7 +43,7 @@ create table if not exists public.game_settings (
     check ((status = 'ASSIGNED') = (assignment_completed_at is not null))
 );
 
-insert into public.game_settings (id) values (1) on conflict (id) do nothing;
+-- (Desde 0003 cada juego tiene su propia fila; ya no se inserta una fila fija aquí.)
 
 -- ---------------------------------------------------------------------
 -- 2. PARTICIPANTES

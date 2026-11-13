@@ -22,7 +22,15 @@ export type ProfileDefaults = {
  * Edición de datos. mode="full" con el registro abierto;
  * mode="wishlist" cuando el sorteo ya se hizo y la administradora lo permite.
  */
-export function ProfileForm({ defaults, mode }: { defaults: ProfileDefaults; mode: "full" | "wishlist" }) {
+export function ProfileForm({
+  gameId,
+  defaults,
+  mode,
+}: {
+  gameId: string;
+  defaults: ProfileDefaults;
+  mode: "full" | "wishlist";
+}) {
   const [state, formAction] = useActionState(updateProfileAction, INITIAL);
   const [name, setName] = useState(defaults.name);
   const [wishlist, setWishlist] = useState(defaults.wishlist);
@@ -60,7 +68,9 @@ export function ProfileForm({ defaults, mode }: { defaults: ProfileDefaults; mod
         />
       </Field>
 
-      {mode === "full" ? <PaperFields value={paper} onChange={setPaper} candidates={state.candidates} errors={errors} /> : null}
+      {mode === "full" ? (
+        <PaperFields gameId={gameId} value={paper} onChange={setPaper} candidates={state.candidates} errors={errors} />
+      ) : null}
 
       {state.message ? <Alert tone={state.ok ? "pine" : "berry"}>{state.message}</Alert> : null}
 

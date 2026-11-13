@@ -16,6 +16,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // Enlaces de la versión de un solo juego: se conservan para quienes ya los tienen.
+  async redirects() {
+    return [
+      { source: "/registro", destination: "/juego/grupo-8/registro", permanent: false },
+      { source: "/login", destination: "/juego/grupo-8/login", permanent: false },
+      { source: "/admin/participantes", destination: "/admin/juegos/grupo-8/participantes", permanent: false },
+      { source: "/admin/asignaciones", destination: "/admin/juegos/grupo-8/asignaciones", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

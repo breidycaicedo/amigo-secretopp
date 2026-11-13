@@ -27,20 +27,29 @@ Todos se registran → la administradora revisa → pulsa «ASIGNAR TODOS»
 → el sistema analiza → asigna → bloquea → cada quien ve su amigo secreto
 ```
 
-**Participantes**
+**Varios juegos a la vez**
 
-- `/registro` — nombre, código (`A00xxxxxx`), lista de deseos y si tienen papelito.
+Cada grupo de amigos tiene **su propio juego**, con su propio enlace y su propio sorteo. Los juegos no se mezclan: el mismo código de estudiante puede estar en dos juegos distintos, y sortear uno no bloquea los demás.
+
+- La administradora crea un juego en `/admin` (por ejemplo «Familia Caicedo») y el sistema le asigna un enlace, como `/juego/familia-caicedo-k7q2`.
+- Comparte ese enlace solo con el grupo que va a jugar. Desde allí se registran y entran.
+- En `/admin` ve la lista de todos sus juegos y escoge cuál administrar.
+
+**Participantes** (entran desde el enlace de su juego: `/juego/<enlace>`)
+
+- `/juego/<enlace>/registro` — nombre, código (`A00xxxxxx`), lista de deseos y si tienen papelito.
   - Si tienen papelito, escriben el nombre: el sistema sugiere participantes registrados. Si el nombre coincide con varias personas («Gabriela»), pide elegir cuál. Si la persona aún no se registra, el papelito queda como **referencia pendiente** y se vincula sola cuando esa persona se registre.
   - Si no tienen papelito, quedan **pendientes** hasta el sorteo.
-- `/login` — entran con su código; la sesión dura 14 días.
+- `/juego/<enlace>/login` — entran con su código; la sesión dura 14 días.
 - `/mi-cuenta` — editan sus datos mientras el registro esté abierto y pueden subir hasta **4 fotos** de lo que les gustaría recibir (se comprimen solas en el celular). Después del sorteo ven **solo** a quién le regalan y su lista de deseos.
 
 **Administradora**
 
-- `/admin/login` — entrada separada con el código guardado en `ADMIN_CODE`.
-- `/admin` — tablero: registrados vs. esperados, papelitos existentes, pendientes por resolver, problemas detectados y el botón **🎁 ASIGNAR TODOS** (con confirmación, y confirmación extra si faltan personas).
-- `/admin/participantes` — tabla con nombre, código, papelito, persona reportada y estado (OK / Pendiente / Verificar / Sin vincular / Conflicto). Permite confirmar o corregir vínculos y eliminar registros mientras el registro está abierto.
-- `/admin/asignaciones` — todas las asignaciones (difuminadas hasta pulsar «Mostrar», por si la administradora también participa).
+- `/admin/login` — entrada separada con el código guardado en `ADMIN_CODE`. Una sola sesión sirve para todos los juegos.
+- `/admin` — lista de juegos, con el formulario **Crear un juego nuevo**.
+- `/admin/juegos/<enlace>` — tablero de UN juego: registrados vs. esperados, papelitos existentes, pendientes por resolver, problemas detectados, el enlace para compartir y el botón **🎁 ASIGNAR TODOS** (con confirmación, y confirmación extra si faltan personas).
+- `/admin/juegos/<enlace>/participantes` — tabla con nombre, código, papelito, persona reportada y estado (OK / Pendiente / Verificar / Sin vincular / Conflicto). Permite confirmar o corregir vínculos y eliminar registros mientras el registro esté abierto.
+- `/admin/juegos/<enlace>/asignaciones` — todas las asignaciones de ese juego (difuminadas hasta pulsar «Mostrar», por si la administradora también participa).
 
 **Estados del juego:** `REGISTRATION_OPEN` → `ASSIGNING` → `ASSIGNED`. Nunca se sortea solo: únicamente cuando la administradora pulsa el botón. Una vez `ASSIGNED`, no se puede volver a sortear ni modificar nada (salvo la lista de deseos, si la administradora lo permite).
 
@@ -62,9 +71,12 @@ Todos se registran → la administradora revisa → pulsa «ASIGNAR TODOS»
 2. Abre el archivo [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql), copia **todo** su contenido y pégalo.
 3. Pulsa **Run**. Debe decir *Success. No rows returned*.
 4. Repite con [`supabase/migrations/0002_wishlist_photos.sql`](supabase/migrations/0002_wishlist_photos.sql) (fotos de la lista de deseos): **New query** → pegar → **Run**.
-4. (Opcional) En **Table Editor** verás las tablas `participants`, `assignments`, `game_settings` y `login_attempts`, todas con el candado de RLS activo.
+5. Por último, [`supabase/migrations/0003_multi_game.sql`](supabase/migrations/0003_multi_game.sql) (varios juegos): **New query** → pegar → **Run**.
+6. (Opcional) En **Table Editor** verás las tablas `games`, `participants`, `assignments`, `game_settings` y `login_attempts`, todas con el candado de RLS activo.
 
-> El script se puede volver a ejecutar sin romper nada (es idempotente).
+> **Si ya tenías la versión de un solo juego:** ejecuta solo el paso 5. Tu juego actual se conserva con todos sus datos, se llama **«Grupo 8»** y su enlace es `/juego/grupo-8`. Los enlaces viejos `/registro` y `/login` redirigen a ese juego.
+
+> Los scripts se pueden volver a ejecutar sin romper nada (son idempotentes).
 
 ### 3. Copiar las claves de Supabase
 
@@ -138,11 +150,12 @@ Pulsa **Deploy**. En 1–2 minutos tendrás una URL como `https://amigo-secreto-
 ### 9. Probar la administración
 
 1. Vuelve al inicio → **Administración** → escribe el código de `ADMIN_CODE` (y la contraseña, si la configuraste).
-2. En **Configuración**, escribe la *cantidad esperada de participantes*.
-3. Comparte el enlace con los participantes y espera a que todos se registren.
-4. Revisa **Participantes**: confirma los papelitos marcados como *Verificar* y vincula los *Sin vincular*.
+2. En **Mis juegos**, crea un juego y entra a él.
+3. En **Configuración**, escribe la *cantidad esperada de participantes*.
+4. Copia el enlace del juego (botón **Copiar enlace**) y compártelo con el grupo. Espera a que todos se registren.
+5. Revisa **Participantes**: confirma los papelitos marcados como *Verificar* y vincula los *Sin vincular*.
 
-> Si hiciste registros de prueba, elimínalos desde **Participantes** antes del sorteo.
+> Si hiciste registros de prueba, elimínalos desde **Participantes** antes del sorteo. Para pruebas, crea un juego de prueba aparte y bórralo después de usarlo (o pide que lo eliminemos).
 
 ### 10. Ejecutar la asignación
 
@@ -262,15 +275,15 @@ Además, el flujo completo se probó de punta a punta en un navegador real contr
 
 ```
 app/
-  page.tsx                      Inicio
-  registro/page.tsx             Registro
-  login/page.tsx                Entrada de participantes
+  page.tsx                      Inicio (explica el enlace del juego)
+  juego/[slug]/page.tsx         Portada de un juego (enlace compartido)
+  juego/[slug]/registro/        Registro dentro de un juego
+  juego/[slug]/login/           Entrada de participantes a un juego
   mi-cuenta/page.tsx            Vista del participante
   admin/login/page.tsx          Entrada de administración
   admin/(panel)/layout.tsx      Verificación de admin + navegación
-  admin/(panel)/page.tsx        Tablero y «ASIGNAR TODOS»
-  admin/(panel)/participantes/  Tabla de participantes
-  admin/(panel)/asignaciones/   Asignaciones (privado)
+  admin/(panel)/page.tsx        Lista de juegos y creación
+  admin/(panel)/juegos/[slug]/  Panel, participantes y asignaciones de UN juego
   acceso-denegado/page.tsx      403
   salir/route.ts                Cierra sesiones inválidas
   api/personas/route.ts         Buscador de nombres (solo id + nombre)
@@ -286,7 +299,9 @@ lib/
   data.ts, supabase.ts          Acceso a datos (solo servidor)
   rate-limit.ts                 Límite de intentos
 types/                          Tipos de base de datos y dominio
-supabase/migrations/0001_init.sql  Esquema completo, triggers, RLS
+supabase/migrations/0001_init.sql  Esquema base, triggers, RLS
+supabase/migrations/0002_wishlist_photos.sql  Fotos de la lista de deseos
+supabase/migrations/0003_multi_game.sql  Varios juegos (games, game_id, sorteo por juego)
 tests/                          Pruebas automáticas
 proxy.ts                        Protección de rutas (antes middleware.ts)
 ```
@@ -301,25 +316,29 @@ proxy.ts                        Protección de rutas (antes middleware.ts)
 
 **Una persona se registró dos veces / registros de prueba.** Elimínalos desde *Participantes* (solo antes del sorteo).
 
+**¿Puede una persona estar en dos juegos?** Sí. Cada juego es independiente: la misma persona, con el mismo código, puede registrarse en ambos.
+
 **Alguien quiere cambiar su lista de deseos después del sorteo.** En *Panel → Configuración*, pulsa *Permitir* en «Editar listas de deseos después del sorteo». Solo se habilita la lista de deseos; nada más.
 
-### Reiniciar el juego (empezar de cero)
+### Reiniciar un juego (empezar de cero)
 
-No hay botón para esto a propósito: evita volver a sortear por accidente. Si realmente necesitas reiniciar (por ejemplo, para el próximo año), ejecuta en **Supabase → SQL Editor**:
+No hay botón para esto a propósito: evita volver a sortear por accidente. Si realmente necesitas reiniciar **un** juego (por ejemplo, para el próximo año), ejecuta en **Supabase → SQL Editor**, cambiando `mi-juego` por el enlace del juego (la parte después de `/juego/`):
 
 ```sql
--- ⚠️ BORRA TODO: asignaciones y participantes. No se puede deshacer.
+-- ⚠️ BORRA TODO lo de ESE juego: asignaciones y participantes. No se puede deshacer.
+-- Los demás juegos no se tocan.
 begin;
 set local app.allow_reset = 'on';
-delete from public.assignments;
+delete from public.assignments
+ where game_id = (select id from public.games where slug = 'mi-juego');
 update public.game_settings
    set status = 'REGISTRATION_OPEN',
        assignment_started_at = null,
        assignment_completed_at = null
- where id = 1;
-delete from public.participants;
-delete from public.login_attempts;
+ where game_id = (select id from public.games where slug = 'mi-juego');
+delete from public.participants
+ where game_id = (select id from public.games where slug = 'mi-juego');
 commit;
 ```
 
-Si solo quieres **repetir el sorteo conservando los registros**, ejecuta lo mismo pero sin la línea `delete from public.participants;`.
+Si solo quieres **repetir el sorteo conservando los registros**, ejecuta lo mismo pero sin el bloque `delete from public.participants`.

@@ -13,7 +13,7 @@ import { StudentCodeInput } from "./student-code-input";
 
 const INITIAL: ActionState = { ok: false };
 
-export function RegistrationForm() {
+export function RegistrationForm({ gameId }: { gameId: string }) {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   // Las fotos (ya comprimidas) se envían junto con el resto del formulario.
   const [state, formAction] = useActionState(async (previous: ActionState, formData: FormData) => {
@@ -57,6 +57,7 @@ export function RegistrationForm() {
 
   return (
     <form action={formAction} className="space-y-5" noValidate>
+      <input type="hidden" name="gameId" value={gameId} />
       <Card className="space-y-5">
         <Field label="Nombre completo" htmlFor="name" error={errors.name}>
           <input
@@ -93,7 +94,7 @@ export function RegistrationForm() {
       </Card>
 
       <Card>
-        <PaperFields value={paper} onChange={setPaper} candidates={state.candidates} errors={errors} />
+        <PaperFields gameId={gameId} value={paper} onChange={setPaper} candidates={state.candidates} errors={errors} />
       </Card>
 
       {state.message && !state.ok ? <Alert tone="berry">{state.message}</Alert> : null}

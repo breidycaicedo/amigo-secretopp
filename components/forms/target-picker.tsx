@@ -12,11 +12,13 @@ export type TargetValue = { name: string; id: string; unregistered: boolean };
  * como referencia pendiente. Solo recibe nombres (nunca códigos ni datos).
  */
 export function TargetPicker({
+  gameId,
   value,
   onChange,
   candidates,
   error,
 }: {
+  gameId: string;
   value: TargetValue;
   onChange: (value: TargetValue) => void;
   candidates?: PersonOption[];
@@ -37,7 +39,9 @@ export function TargetPicker({
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const response = await fetch(`/api/personas?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+        const response = await fetch(`/api/personas?game=${encodeURIComponent(gameId)}&q=${encodeURIComponent(query)}`, {
+          cache: "no-store",
+        });
         if (!response.ok) {
           return;
         }
@@ -54,7 +58,7 @@ export function TargetPicker({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [value.name, value.id]);
+  }, [gameId, value.name, value.id]);
 
   const choose = (person: PersonOption) => {
     onChange({ name: person.name, id: person.id, unregistered: false });

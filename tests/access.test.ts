@@ -15,7 +15,7 @@ describe("seguridad de rutas", () => {
   });
 
   it("sesión expirada en /mi-cuenta → login con aviso", () => {
-    expect(decideAccess("/mi-cuenta", null, true)).toEqual({ type: "redirect", to: "/login?motivo=expirada" });
+    expect(decideAccess("/mi-cuenta", null, true)).toEqual({ type: "redirect", to: "/?motivo=expirada" });
   });
 
   it("la página de login de administración es pública", () => {

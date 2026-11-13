@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { GiftMark } from "@/components/gift-mark";
-import { ButtonLink } from "@/components/ui";
+import { Alert } from "@/components/ui";
+import { ERRORS } from "@/lib/errors";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ motivo?: string }> }) {
+  const { motivo } = await searchParams;
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-12">
       <div className="w-full max-w-md text-center">
@@ -18,21 +22,18 @@ export default function HomePage() {
           AMIGO SECRETO
         </h1>
         <p className="mx-auto mt-4 max-w-sm text-lg text-muted animate-rise" style={{ animationDelay: "120ms" }}>
-          Organiza tu amigo secreto de forma fácil y segura.
+          Para entrar, usa el enlace que te compartió la administradora de tu juego.
         </p>
 
-        <div className="mt-10 space-y-3 animate-rise" style={{ animationDelay: "180ms" }}>
-          <ButtonLink href="/registro" size="lg" className="w-full">
-            Registrarme
-          </ButtonLink>
-          <ButtonLink href="/login" variant="secondary" size="lg" className="w-full">
-            Ya estoy registrado
-          </ButtonLink>
-        </div>
+        {motivo === "expirada" ? (
+          <div className="mt-6 text-left">
+            <Alert tone="amber">{ERRORS.SESSION_EXPIRED_HOME}</Alert>
+          </div>
+        ) : null}
 
         <Link
           href="/admin/login"
-          className="mt-8 inline-block rounded-lg px-3 py-2 text-sm font-semibold text-muted underline-offset-4 hover:text-berry-700 hover:underline"
+          className="mt-10 inline-block rounded-lg px-3 py-2 text-sm font-semibold text-muted underline-offset-4 hover:text-berry-700 hover:underline"
         >
           Administración
         </Link>

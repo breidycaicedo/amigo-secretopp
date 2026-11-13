@@ -9,8 +9,15 @@ export type GameStatus = "REGISTRATION_OPEN" | "ASSIGNING" | "ASSIGNED";
 export type AssignmentSource = "EXISTING" | "GENERATED";
 export type LoginScope = "participant" | "admin";
 
+export type GameRow = {
+  id: string;
+  slug: string;
+  name: string;
+  created_at: string;
+};
+
 export type GameSettingsRow = {
-  id: number;
+  game_id: string;
   expected_participants: number | null;
   status: GameStatus;
   assignments_locked: boolean;
@@ -23,6 +30,7 @@ export type GameSettingsRow = {
 
 export type ParticipantRow = {
   id: string;
+  game_id: string;
   name: string;
   name_normalized: string;
   student_code: string;
@@ -39,6 +47,7 @@ export type ParticipantRow = {
 
 export type AssignmentRow = {
   id: string;
+  game_id: string;
   giver_id: string;
   receiver_id: string;
   source: AssignmentSource;
@@ -55,16 +64,31 @@ export type LoginAttemptRow = {
 export type Database = {
   public: {
     Tables: {
+      games: {
+        Row: GameRow;
+        Insert: { slug: string; name: string };
+        Update: { name?: string };
+        Relationships: [];
+      };
       game_settings: {
         Row: GameSettingsRow;
-        Insert: Partial<GameSettingsRow>;
-        Update: Partial<Omit<GameSettingsRow, "id" | "created_at">>;
-        Relationships: [];
+        Insert: { game_id: string } & Partial<Omit<GameSettingsRow, "game_id" | "created_at">>;
+        Update: Partial<Omit<GameSettingsRow, "game_id" | "created_at">>;
+        Relationships: [
+          {
+            foreignKeyName: "game_settings_game_id_fkey";
+            columns: ["game_id"];
+            isOneToOne: true;
+            referencedRelation: "games";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       participants: {
         Row: ParticipantRow;
         Insert: {
           id?: string;
+          game_id: string;
           name: string;
           name_normalized: string;
           student_code: string;
@@ -75,7 +99,7 @@ export type Database = {
           reported_target_id?: string | null;
           reported_target_confirmed?: boolean;
         };
-        Update: Partial<Omit<ParticipantRow, "id" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<ParticipantRow, "id" | "game_id" | "created_at" | "updated_at">>;
         Relationships: [
           {
             foreignKeyName: "participants_reported_target_id_fkey";
@@ -90,6 +114,7 @@ export type Database = {
         Row: AssignmentRow;
         Insert: {
           id?: string;
+          game_id: string;
           giver_id: string;
           receiver_id: string;
           source: AssignmentSource;
@@ -122,7 +147,7 @@ export type Database = {
     Views: { [_ in never]: never };
     Functions: {
       commit_assignments: {
-        Args: { p_participant_ids: string[]; p_assignments: Json };
+        Args: { p_game_id: string; p_participant_ids: string[]; p_assignments: Json };
         Returns: string;
       };
     };

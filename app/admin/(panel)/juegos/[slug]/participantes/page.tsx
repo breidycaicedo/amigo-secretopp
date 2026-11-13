@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { DeleteParticipantButton, LinkReferenceForm } from "@/components/admin/participant-actions";
 import { Badge, Card } from "@/components/ui";
-import { getSettings, listParticipants } from "@/lib/data";
+import { notFound } from "next/navigation";
+import { getGameBySlug, getSettings, listParticipants } from "@/lib/data";
 import { signPhotos } from "@/lib/photos";
 import { REVIEW_LABELS, buildAdminSummary, type ParticipantReview } from "@/lib/review";
 import type { ParticipantReviewStatus, PersonOption } from "@/types/domain";
@@ -72,8 +73,15 @@ function Actions({ review, open, people }: { review: ParticipantReview; open: bo
   );
 }
 
-export default async function ParticipantsPage() {
-  const [settings, rows] = await Promise.all([getSettings(), listParticipants()]);
+type GamePageProps = { params: Promise<{ slug: string }> };
+
+export default async function ParticipantsPage({ params }: GamePageProps) {
+  const { slug } = await params;
+  const game = await getGameBySlug(slug);
+  if (game === null) {
+    notFound();
+  }
+  const [settings, rows] = await Promise.all([getSettings(game.id), listParticipants(game.id)]);
   const summary = buildAdminSummary(rows, settings.expected_participants);
   const open = settings.status === "REGISTRATION_OPEN";
   const allPaths: string[] = [];

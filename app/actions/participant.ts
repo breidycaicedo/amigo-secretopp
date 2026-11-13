@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { ActionState } from "@/types/domain";
 import { currentParticipant } from "@/lib/auth";
-import { DataError, getParticipantByCode, getSettings, resolvePendingReferences } from "@/lib/data";
+import { DataError, getGameById, getParticipantByCode, getSettings, resolvePendingReferences } from "@/lib/data";
 import { ERRORS, messageForDbError } from "@/lib/errors";
 import { field } from "@/lib/form";
 import { canEditProfile, canEditWishlist, canRegister } from "@/lib/game-rules";
@@ -19,6 +19,7 @@ const registrationSchema = z.object({
   name: nameSchema,
   studentCode: studentCodeSchema,
   wishlist: wishlistSchema,
+  gameId: z.string().uuid(),
 });
 
 function paperFields(formData: FormData) {
@@ -42,19 +43,21 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
     name: field(formData, "name"),
     studentCode: field(formData, "studentCode"),
     wishlist: field(formData, "wishlist"),
+    gameId: field(formData, "gameId"),
   });
   const paper = paperSchema.safeParse(paperFields(formData));
 
   if (!basics.success || !paper.success) {
     return {
       ok: false,
-      message: "Revisa los campos marcados.",
+      message: basics.success ? "Revisa los campos marcados." : ERRORS.GAME_NOT_FOUND,
       fieldErrors: {
         ...(basics.success ? {} : fieldErrorsFrom(basics.error)),
         ...(paper.success ? {} : fieldErrorsFrom(paper.error)),
       },
     };
   }
+  const gameId = basics.data.gameId;
 
   const photos = await readPhotos(formData);
   if (typeof photos === "string") {
@@ -63,16 +66,19 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
   let photosFailed = false;
 
   try {
-    const settings = await getSettings();
+    if ((await getGameById(gameId)) === null) {
+      return { ok: false, message: ERRORS.GAME_NOT_FOUND };
+    }
+    const settings = await getSettings(gameId);
     if (!canRegister(settings.status)) {
       return { ok: false, message: "El registro está cerrado: la administradora ya realizó el sorteo." };
     }
 
-    if ((await getParticipantByCode(basics.data.studentCode)) !== null) {
+    if ((await getParticipantByCode(gameId, basics.data.studentCode)) !== null) {
       return { ok: false, fieldErrors: { studentCode: ERRORS.CODE_TAKEN } };
     }
 
-    const resolution = await resolvePaper(paper.data, { id: null, name: basics.data.name });
+    const resolution = await resolvePaper(paper.data, { id: null, name: basics.data.name }, gameId);
     if (!resolution.ok) {
       return {
         ok: false,
@@ -84,6 +90,7 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
     const { data: created, error } = await db()
       .from("participants")
       .insert({
+        game_id: gameId,
         name: basics.data.name,
         name_normalized: normalizeName(basics.data.name),
         student_code: basics.data.studentCode,
@@ -112,7 +119,7 @@ export async function registerAction(_prev: ActionState, formData: FormData): Pr
       }
     }
 
-    await resolvePendingReferences();
+    await resolvePendingReferences(gameId);
     await startSession({ role: "participant", participantId: created.id });
   } catch (error) {
     return failure(error);
@@ -132,7 +139,7 @@ export async function updateProfileAction(_prev: ActionState, formData: FormData
     if (participant === null) {
       return { ok: false, message: ERRORS.SESSION_EXPIRED };
     }
-    const settings = await getSettings();
+    const settings = await getSettings(participant.game_id);
 
     const wishlist = wishlistSchema.safeParse(field(formData, "wishlist"));
     if (!wishlist.success) {
@@ -177,7 +184,7 @@ export async function updateProfileAction(_prev: ActionState, formData: FormData
 
     let paperUpdate = {};
     if (!unchanged) {
-      const resolution = await resolvePaper(paper.data, { id: participant.id, name: name.data });
+      const resolution = await resolvePaper(paper.data, { id: participant.id, name: name.data }, participant.game_id);
       if (!resolution.ok) {
         return {
           ok: false,
@@ -200,7 +207,7 @@ export async function updateProfileAction(_prev: ActionState, formData: FormData
     if (error) {
       return { ok: false, message: messageForDbError(error) };
     }
-    await resolvePendingReferences();
+    await resolvePendingReferences(participant.game_id);
   } catch (error) {
     return failure(error);
   }

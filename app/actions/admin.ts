@@ -1,20 +1,31 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Json } from "@/types/database";
 import type { ActionState } from "@/types/domain";
 import { planAssignments, type AssignmentParticipant } from "@/lib/assignment";
 import { isAdmin } from "@/lib/auth";
-import { DataError, getParticipantById, getSettings, listParticipants, resolvePendingReferences } from "@/lib/data";
+import {
+  DataError,
+  getGameById,
+  getParticipantById,
+  getSettings,
+  listParticipants,
+  resolvePendingReferences,
+} from "@/lib/data";
 import { ERRORS, messageForDbError } from "@/lib/errors";
 import { field } from "@/lib/form";
 import { canRunAssignment } from "@/lib/game-rules";
 import { removePhotoFiles } from "@/lib/photos";
+import { newGameSlug } from "@/lib/slug";
 import { db } from "@/lib/supabase";
 
 const uuid = z.string().uuid();
+const gameName = z.string().trim().min(2, "Escribe un nombre de al menos 2 letras.").max(60, "El nombre es muy largo (máximo 60).");
 
+/** Revalida todo el panel de administración (listas de juegos, panel de cada juego, cuenta). */
 function refreshAdmin(): void {
   revalidatePath("/admin", "layout");
   revalidatePath("/mi-cuenta");
@@ -27,9 +38,65 @@ function failure(error: unknown): ActionState {
   return { ok: false, message: ERRORS.CONNECTION };
 }
 
+/** Juego indicado por el formulario: debe ser un UUID de un juego que exista. */
+async function gameFromForm(formData: FormData): Promise<string | null> {
+  const parsed = uuid.safeParse(field(formData, "gameId"));
+  if (!parsed.success) {
+    return null;
+  }
+  return (await getGameById(parsed.data)) === null ? null : parsed.data;
+}
+
+/** Crea un juego nuevo con su configuración y su enlace propio. */
+export async function createGameAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  if (!(await isAdmin())) {
+    return { ok: false, message: ERRORS.UNAUTHORIZED };
+  }
+  const parsed = gameName.safeParse(field(formData, "name"));
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: { name: parsed.error.issues[0].message } };
+  }
+
+  let slug = "";
+  let created = false;
+  try {
+    // Si por casualidad el enlace ya existe, se prueba otro sufijo.
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      slug = newGameSlug(parsed.data);
+      const { data: game, error } = await db()
+        .from("games")
+        .insert({ slug, name: parsed.data })
+        .select("id")
+        .single();
+      if (error) {
+        if (error.code === "23505") {
+          continue;
+        }
+        return { ok: false, message: messageForDbError(error) };
+      }
+      const settings = await db().from("game_settings").insert({ game_id: game.id });
+      if (settings.error) {
+        return { ok: false, message: messageForDbError(settings.error) };
+      }
+      created = true;
+    }
+  } catch (error) {
+    return failure(error);
+  }
+  if (!created) {
+    return { ok: false, message: ERRORS.DATABASE };
+  }
+  refreshAdmin();
+  redirect(`/admin/juegos/${slug}`);
+}
+
 export async function setExpectedParticipantsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   if (!(await isAdmin())) {
     return { ok: false, message: ERRORS.UNAUTHORIZED };
+  }
+  const gameId = await gameFromForm(formData);
+  if (gameId === null) {
+    return { ok: false, message: ERRORS.GAME_NOT_FOUND };
   }
   const raw = field(formData, "expected").trim();
   let expected: number | null = null;
@@ -41,7 +108,7 @@ export async function setExpectedParticipantsAction(_prev: ActionState, formData
     expected = parsed.data;
   }
   try {
-    const { error } = await db().from("game_settings").update({ expected_participants: expected }).eq("id", 1);
+    const { error } = await db().from("game_settings").update({ expected_participants: expected }).eq("game_id", gameId);
     if (error) {
       return { ok: false, message: messageForDbError(error) };
     }
@@ -56,12 +123,16 @@ export async function setWishlistEditingAction(_prev: ActionState, formData: For
   if (!(await isAdmin())) {
     return { ok: false, message: ERRORS.UNAUTHORIZED };
   }
+  const gameId = await gameFromForm(formData);
+  if (gameId === null) {
+    return { ok: false, message: ERRORS.GAME_NOT_FOUND };
+  }
   const allow = field(formData, "allow") === "1";
   try {
     const { error } = await db()
       .from("game_settings")
       .update({ allow_wishlist_edit_after_lock: allow })
-      .eq("id", 1);
+      .eq("game_id", gameId);
     if (error) {
       return { ok: false, message: messageForDbError(error) };
     }
@@ -77,7 +148,10 @@ export async function setWishlistEditingAction(_prev: ActionState, formData: For
   };
 }
 
-/** Vincula (y confirma) la persona del papelito de un participante, o la desvincula. */
+/**
+ * Vincula (y confirma) la persona del papelito de un participante, o la desvincula.
+ * El juego se toma del propio participante: no se puede vincular entre juegos.
+ */
 export async function linkReferenceAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   if (!(await isAdmin())) {
     return { ok: false, message: ERRORS.UNAUTHORIZED };
@@ -88,13 +162,13 @@ export async function linkReferenceAction(_prev: ActionState, formData: FormData
     return { ok: false, message: ERRORS.TARGET_NOT_FOUND };
   }
   try {
-    const settings = await getSettings();
-    if (!canRunAssignment(settings.status)) {
-      return { ok: false, message: ERRORS.GAME_LOCKED };
-    }
     const participant = await getParticipantById(participantId.data);
     if (participant === null || !participant.has_existing_assignment) {
       return { ok: false, message: "Esa persona no tiene un papelito reportado." };
+    }
+    const settings = await getSettings(participant.game_id);
+    if (!canRunAssignment(settings.status)) {
+      return { ok: false, message: ERRORS.GAME_LOCKED };
     }
 
     if (rawTarget.length === 0) {
@@ -117,7 +191,7 @@ export async function linkReferenceAction(_prev: ActionState, formData: FormData
       return { ok: false, message: "Una persona no puede regalarse a sí misma." };
     }
     const target = await getParticipantById(targetId.data);
-    if (target === null) {
+    if (target === null || target.game_id !== participant.game_id) {
       return { ok: false, message: ERRORS.TARGET_NOT_FOUND };
     }
     const { error } = await db()
@@ -143,19 +217,20 @@ export async function deleteParticipantAction(_prev: ActionState, formData: Form
     return { ok: false, message: ERRORS.PARTICIPANT_NOT_FOUND };
   }
   try {
-    const settings = await getSettings();
+    const existing = await getParticipantById(participantId.data);
+    if (existing === null) {
+      return { ok: false, message: ERRORS.PARTICIPANT_NOT_FOUND };
+    }
+    const settings = await getSettings(existing.game_id);
     if (!canRunAssignment(settings.status)) {
       return { ok: false, message: ERRORS.GAME_LOCKED };
     }
-    const existing = await getParticipantById(participantId.data);
-    const { error } = await db().from("participants").delete().eq("id", participantId.data);
+    const { error } = await db().from("participants").delete().eq("id", existing.id);
     if (error) {
       return { ok: false, message: messageForDbError(error) };
     }
-    if (existing !== null) {
-      await removePhotoFiles(existing.wishlist_photos);
-    }
-    await resolvePendingReferences();
+    await removePhotoFiles(existing.wishlist_photos);
+    await resolvePendingReferences(existing.game_id);
   } catch (error) {
     return failure(error);
   }
@@ -178,7 +253,7 @@ function toAlgorithmInput(rows: Awaited<ReturnType<typeof listParticipants>>): A
 }
 
 /**
- * "ASIGNAR TODOS": solo se ejecuta cuando la administradora lo pide.
+ * "ASIGNAR TODOS" de UN juego: solo se ejecuta cuando la administradora lo pide.
  * Calcula el sorteo en el servidor y lo guarda de forma atómica con
  * commit_assignments; la base de datos vuelve a validar todo.
  */
@@ -189,9 +264,13 @@ export async function runAssignmentAction(_prev: ActionState, formData: FormData
   if (field(formData, "confirm") !== "1") {
     return { ok: false, message: "Debes confirmar la acción." };
   }
+  const gameId = await gameFromForm(formData);
+  if (gameId === null) {
+    return { ok: false, message: ERRORS.GAME_NOT_FOUND };
+  }
 
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(gameId);
     if (settings.status === "ASSIGNED") {
       return { ok: false, message: ERRORS.ALREADY_ASSIGNED };
     }
@@ -199,7 +278,7 @@ export async function runAssignmentAction(_prev: ActionState, formData: FormData
       return { ok: false, message: ERRORS.GAME_LOCKED };
     }
 
-    const rows = await listParticipants();
+    const rows = await listParticipants(gameId);
     const missing = settings.expected_participants === null ? null : settings.expected_participants - rows.length;
     const needsExtraConfirmation = missing === null || missing > 0;
     if (needsExtraConfirmation && field(formData, "confirmMissing") !== "1") {
@@ -226,7 +305,11 @@ export async function runAssignmentAction(_prev: ActionState, formData: FormData
       ids.push(participant.id);
     }
 
-    const { error } = await db().rpc("commit_assignments", { p_participant_ids: ids, p_assignments: payload });
+    const { error } = await db().rpc("commit_assignments", {
+      p_game_id: gameId,
+      p_participant_ids: ids,
+      p_assignments: payload,
+    });
     if (error) {
       return { ok: false, message: messageForDbError(error) };
     }

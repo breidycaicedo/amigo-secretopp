@@ -30,6 +30,7 @@ describe("relacionar nombres con participantes", () => {
 
 function row(partial: Partial<ParticipantRow> & { id: string; name: string }): ParticipantRow {
   return {
+    game_id: "00000000-0000-4000-8000-000000000001",
     name_normalized: normalizeName(partial.name),
     student_code: "A00000000",
     wishlist: "",

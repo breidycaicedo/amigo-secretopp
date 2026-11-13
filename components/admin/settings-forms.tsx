@@ -20,10 +20,11 @@ function Feedback({ state }: { state: ActionState }) {
   );
 }
 
-export function ExpectedForm({ current }: { current: number | null }) {
+export function ExpectedForm({ gameId, current }: { gameId: string; current: number | null }) {
   const [state, formAction] = useActionState(setExpectedParticipantsAction, INITIAL);
   return (
     <form action={formAction} className="space-y-2">
+      <input type="hidden" name="gameId" value={gameId} />
       <label htmlFor="expected" className="block text-sm font-semibold">
         Cantidad esperada de participantes
       </label>
@@ -49,10 +50,11 @@ export function ExpectedForm({ current }: { current: number | null }) {
   );
 }
 
-export function WishlistToggle({ allowed }: { allowed: boolean }) {
+export function WishlistToggle({ gameId, allowed }: { gameId: string; allowed: boolean }) {
   const [state, formAction] = useActionState(setWishlistEditingAction, INITIAL);
   return (
     <form action={formAction} className="space-y-2">
+      <input type="hidden" name="gameId" value={gameId} />
       <input type="hidden" name="allow" value={allowed ? "" : "1"} />
       <div className="flex items-center justify-between gap-4">
         <div>

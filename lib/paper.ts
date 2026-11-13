@@ -33,6 +33,7 @@ const NO_PAPER: PaperFields = {
 export async function resolvePaper(
   paper: PaperInput,
   self: { id: string | null; name: string },
+  gameId: string,
 ): Promise<PaperResolution> {
   if (!paper.hasExistingAssignment) {
     return { ok: true, fields: NO_PAPER };
@@ -47,7 +48,8 @@ export async function resolvePaper(
       return { ok: false, error: ERRORS.SELF_TARGET };
     }
     const target = await getParticipantById(paper.targetId);
-    if (target === null) {
+    // Solo se puede reportar a alguien DEL MISMO juego.
+    if (target === null || target.game_id !== gameId) {
       return { ok: false, error: ERRORS.TARGET_NOT_FOUND };
     }
     return {
@@ -72,7 +74,7 @@ export async function resolvePaper(
     return { ok: true, fields: pending };
   }
 
-  const candidates = await candidatesFor(paper.targetName, self.id ?? undefined);
+  const candidates = await candidatesFor(gameId, paper.targetName, self.id ?? undefined);
   if (candidates.length === 0) {
     return { ok: true, fields: pending };
   }

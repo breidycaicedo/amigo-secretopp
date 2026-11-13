@@ -13,7 +13,7 @@ import { readSession } from "./session";
 export async function requireParticipantPage(): Promise<ParticipantRow> {
   const { session, expired } = await readSession();
   if (session === null) {
-    redirect(expired ? "/salir?motivo=expirada" : "/login");
+    redirect(expired ? "/salir?motivo=expirada" : "/");
   }
   if (session.role !== "participant") {
     redirect("/admin");

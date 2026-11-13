@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function MyAccountPage() {
   // El participante sale de la cookie firmada: no hay IDs en la URL.
   const me = await requireParticipantPage();
-  const settings = await getSettings();
+  const settings = await getSettings(me.game_id);
   const assigned = canSeeResult(settings.status);
   // Solo se consulta la persona que le corresponde a ESTE participante.
   const gift = assigned ? await getGiftFor(me.id) : null;
@@ -110,6 +110,7 @@ export default async function MyAccountPage() {
             </div>
           ) : (
             <ProfileForm
+            gameId={me.game_id}
               mode={editMode}
               defaults={{
                 name: me.name,

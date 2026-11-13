@@ -1,5 +1,5 @@
 import "server-only";
-import type { AssignmentSource, GameSettingsRow, ParticipantRow } from "@/types/database";
+import type { AssignmentSource, GameRow, GameSettingsRow, ParticipantRow } from "@/types/database";
 import type { PersonOption } from "@/types/domain";
 import { findCandidates, normalizeName, searchMatches, type NamedParticipant } from "./names";
 import { db } from "./supabase";
@@ -7,6 +7,7 @@ import { db } from "./supabase";
 /**
  * Acceso a datos del lado del servidor. Ninguna función de este archivo se
  * expone al navegador; las páginas deciden qué subconjunto mínimo mostrar.
+ * Casi todo es POR JUEGO: cada consulta recibe el game_id.
  */
 
 export class DataError extends Error {
@@ -22,8 +23,45 @@ function raise(error: { message: string; code?: string }): never {
   throw new DataError(error.message, error.code);
 }
 
-export async function getSettings(): Promise<GameSettingsRow> {
-  const { data, error } = await db().from("game_settings").select("*").eq("id", 1).single();
+export async function listGames(): Promise<GameRow[]> {
+  const { data, error } = await db().from("games").select("*").order("created_at", { ascending: true });
+  if (error) {
+    raise(error);
+  }
+  return data;
+}
+
+export async function getGameBySlug(slug: string): Promise<GameRow | null> {
+  const { data, error } = await db().from("games").select("*").eq("slug", slug).maybeSingle();
+  if (error) {
+    raise(error);
+  }
+  return data;
+}
+
+export async function getGameById(id: string): Promise<GameRow | null> {
+  const { data, error } = await db().from("games").select("*").eq("id", id).maybeSingle();
+  if (error) {
+    raise(error);
+  }
+  return data;
+}
+
+/** Cuántos participantes tiene cada juego (para el listado de juegos). */
+export async function countParticipantsByGame(): Promise<Map<string, number>> {
+  const { data, error } = await db().from("participants").select("game_id");
+  if (error) {
+    raise(error);
+  }
+  const counts = new Map<string, number>();
+  for (const row of data) {
+    counts.set(row.game_id, (counts.get(row.game_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export async function getSettings(gameId: string): Promise<GameSettingsRow> {
+  const { data, error } = await db().from("game_settings").select("*").eq("game_id", gameId).single();
   if (error) {
     raise(error);
   }
@@ -38,37 +76,50 @@ export async function getParticipantById(id: string): Promise<ParticipantRow | n
   return data;
 }
 
-export async function getParticipantByCode(code: string): Promise<ParticipantRow | null> {
-  const { data, error } = await db().from("participants").select("*").eq("student_code", code).maybeSingle();
+/** Busca un código DENTRO de un juego: el mismo código puede existir en juegos distintos. */
+export async function getParticipantByCode(gameId: string, code: string): Promise<ParticipantRow | null> {
+  const { data, error } = await db()
+    .from("participants")
+    .select("*")
+    .eq("game_id", gameId)
+    .eq("student_code", code)
+    .maybeSingle();
   if (error) {
     raise(error);
   }
   return data;
 }
 
-export async function listParticipants(): Promise<ParticipantRow[]> {
-  const { data, error } = await db().from("participants").select("*").order("created_at", { ascending: true });
+export async function listParticipants(gameId: string): Promise<ParticipantRow[]> {
+  const { data, error } = await db()
+    .from("participants")
+    .select("*")
+    .eq("game_id", gameId)
+    .order("created_at", { ascending: true });
   if (error) {
     raise(error);
   }
   return data;
 }
 
-async function listNamed(): Promise<NamedParticipant[]> {
-  const { data, error } = await db().from("participants").select("id, name, name_normalized");
+async function listNamed(gameId: string): Promise<NamedParticipant[]> {
+  const { data, error } = await db()
+    .from("participants")
+    .select("id, name, name_normalized")
+    .eq("game_id", gameId);
   if (error) {
     raise(error);
   }
   return data;
 }
 
-/** Buscador de nombres para el formulario: solo id + nombre, máximo 6. */
-export async function searchPeople(query: string, excludeId?: string): Promise<PersonOption[]> {
+/** Buscador de nombres para el formulario: solo id + nombre, máximo 6, dentro del juego. */
+export async function searchPeople(gameId: string, query: string, excludeId?: string): Promise<PersonOption[]> {
   const normalized = normalizeName(query);
   if (normalized.length < 2) {
     return [];
   }
-  const people = await listNamed();
+  const people = await listNamed(gameId);
   const result: PersonOption[] = [];
   for (const person of people) {
     if (person.id === excludeId) {
@@ -85,20 +136,20 @@ export async function searchPeople(query: string, excludeId?: string): Promise<P
   return result;
 }
 
-export async function candidatesFor(reportedName: string, excludeId?: string): Promise<PersonOption[]> {
-  return findCandidates(reportedName, await listNamed(), excludeId);
+export async function candidatesFor(gameId: string, reportedName: string, excludeId?: string): Promise<PersonOption[]> {
+  return findCandidates(reportedName, await listNamed(gameId), excludeId);
 }
 
 /**
  * Cuando alguien se registra o cambia su nombre, intenta resolver los
- * papelitos que lo mencionaban y aún no estaban vinculados. Solo vincula
- * si esa persona es la ÚNICA coincidencia; el vínculo queda "sin confirmar"
- * para que la administradora lo revise.
+ * papelitos del juego que lo mencionaban y aún no estaban vinculados. Solo
+ * vincula si esa persona es la ÚNICA coincidencia; queda "sin confirmar".
  */
-export async function resolvePendingReferences(): Promise<void> {
+export async function resolvePendingReferences(gameId: string): Promise<void> {
   const { data: pending, error } = await db()
     .from("participants")
     .select("id, reported_target_name")
+    .eq("game_id", gameId)
     .eq("has_existing_assignment", true)
     .is("reported_target_id", null);
   if (error) {
@@ -107,7 +158,7 @@ export async function resolvePendingReferences(): Promise<void> {
   if (pending.length === 0) {
     return;
   }
-  const people = await listNamed();
+  const people = await listNamed(gameId);
   for (const row of pending) {
     if (row.reported_target_name === null) {
       continue;
@@ -160,10 +211,10 @@ export type AssignmentView = {
   source: AssignmentSource;
 };
 
-export async function listAssignments(): Promise<AssignmentView[]> {
+export async function listAssignments(gameId: string): Promise<AssignmentView[]> {
   const [{ data: assignments, error }, people] = await Promise.all([
-    db().from("assignments").select("*").order("created_at", { ascending: true }),
-    listNamed(),
+    db().from("assignments").select("*").eq("game_id", gameId).order("created_at", { ascending: true }),
+    listNamed(gameId),
   ]);
   if (error) {
     raise(error);

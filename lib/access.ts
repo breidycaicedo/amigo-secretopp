@@ -35,7 +35,7 @@ export function decideAccess(pathname: string, session: Session | null, sessionE
 
   if (isParticipantArea(pathname)) {
     if (session === null) {
-      return { type: "redirect", to: sessionExpired ? "/login?motivo=expirada" : "/login" };
+      return { type: "redirect", to: sessionExpired ? "/?motivo=expirada" : "/" };
     }
     if (session.role !== "participant") {
       return { type: "redirect", to: "/admin" };

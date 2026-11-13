@@ -17,6 +17,8 @@ export const ERRORS = {
   PARTICIPANTS_CHANGED: "La lista de participantes cambió mientras se hacía el sorteo. No se guardó nada; revisa e intenta de nuevo.",
   MISSING_CONFIRMATION: "Todavía faltan participantes por registrarse. Marca la confirmación adicional para continuar.",
   NOT_ENOUGH: "Se necesitan al menos 2 participantes para hacer el sorteo.",
+  GAME_NOT_FOUND: "No encontramos ese juego. Revisa el enlace que te compartió la administradora.",
+  SESSION_EXPIRED_HOME: "Tu sesión expiró. Vuelve a entrar desde el enlace de tu juego.",
 } as const;
 
 type DbError = { code?: string; message?: string } | null | undefined;
@@ -35,6 +37,12 @@ export function messageForDbError(error: DbError): string {
   }
   if (message.includes("PARTICIPANTS_CHANGED")) {
     return ERRORS.PARTICIPANTS_CHANGED;
+  }
+  if (message.includes("REFERENCE_OTHER_GAME")) {
+    return ERRORS.TARGET_NOT_FOUND;
+  }
+  if (message.includes("GAME_NOT_FOUND")) {
+    return ERRORS.GAME_NOT_FOUND;
   }
   if (message.includes("NOT_ENOUGH_PARTICIPANTS")) {
     return ERRORS.NOT_ENOUGH;

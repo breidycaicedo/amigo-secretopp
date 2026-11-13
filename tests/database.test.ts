@@ -9,8 +9,11 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const migration = readFileSync(path.resolve(__dirname, "../supabase/migrations/0001_init.sql"), "utf8");
 const photosMigration = readFileSync(path.resolve(__dirname, "../supabase/migrations/0002_wishlist_photos.sql"), "utf8");
+const multiGameMigration = readFileSync(path.resolve(__dirname, "../supabase/migrations/0003_multi_game.sql"), "utf8");
 
 let pg: PGlite;
+/** Juego por defecto de las pruebas (cada prueba arranca con una base limpia). */
+let gameId: string;
 
 beforeAll(async () => {
   pg = new PGlite();
@@ -24,40 +27,63 @@ beforeAll(async () => {
   `);
 });
 
-/** Base de datos limpia para cada prueba: se borra el esquema y se vuelve a ejecutar la migración. */
-async function fresh(): Promise<void> {
+async function resetSchema(): Promise<void> {
   await pg.exec(`
     reset role;
     drop schema if exists public cascade;
     create schema public;
     grant usage on schema public to anon, authenticated, service_role;
   `);
+}
+
+/** Base de datos limpia para cada prueba: esquema actual (0001 → 0002 → 0003) con un juego de prueba. */
+async function fresh(): Promise<void> {
+  await resetSchema();
   await pg.exec(migration);
   await pg.exec(photosMigration);
   await pg.exec(photosMigration); // se puede ejecutar dos veces
+  await pg.exec(multiGameMigration);
+  await pg.exec(multiGameMigration); // se puede ejecutar dos veces
+  gameId = await createGame("Prueba", "prueba");
 }
 
-async function addParticipant(name: string, code: string, targetId: string | null = null, hasPaper = false): Promise<string> {
+async function createGame(name: string, slug: string): Promise<string> {
   const result = await pg.query<{ id: string }>(
-    `insert into participants (name, name_normalized, student_code, has_existing_assignment, reported_target_name, reported_target_id, reported_target_confirmed)
-     values ($1, lower($1), $2, $3, $4, $5, $6) returning id`,
-    [name, code, hasPaper, hasPaper ? "alguien" : null, targetId, targetId !== null],
+    "insert into games (slug, name) values ($1, $2) returning id",
+    [slug, name],
+  );
+  const id = result.rows[0].id;
+  await pg.query("insert into game_settings (game_id) values ($1)", [id]);
+  return id;
+}
+
+async function addParticipant(
+  name: string,
+  code: string,
+  targetId: string | null = null,
+  hasPaper = false,
+  game: string = gameId,
+): Promise<string> {
+  const result = await pg.query<{ id: string }>(
+    `insert into participants (game_id, name, name_normalized, student_code, has_existing_assignment, reported_target_name, reported_target_id, reported_target_confirmed)
+     values ($1, $2, lower($2), $3, $4, $5, $6, $7) returning id`,
+    [game, name, code, hasPaper, hasPaper ? "alguien" : null, targetId, targetId !== null],
   );
   return result.rows[0].id;
 }
 
-async function status(): Promise<string> {
-  const result = await pg.query<{ status: string }>("select status from game_settings where id = 1");
+async function status(game: string = gameId): Promise<string> {
+  const result = await pg.query<{ status: string }>("select status from game_settings where game_id = $1", [game]);
   return result.rows[0].status;
 }
 
-async function commit(ids: string[], pairs: Array<[string, string, "EXISTING" | "GENERATED"]>) {
+async function commit(ids: string[], pairs: Array<[string, string, "EXISTING" | "GENERATED"]>, game: string = gameId) {
   const payload = JSON.stringify(pairs.map(([giver, receiver, source]) => ({ giver_id: giver, receiver_id: receiver, source })));
-  return pg.query("select commit_assignments($1::uuid[], $2::jsonb) as done", [ids, payload]);
+  return pg.query("select commit_assignments($1::uuid, $2::uuid[], $3::jsonb) as done", [game, ids, payload]);
 }
 
-async function count(table: string): Promise<number> {
-  const result = await pg.query<{ n: number }>(`select count(*)::int as n from ${table}`);
+async function count(table: string, game: string = gameId): Promise<number> {
+  const result = await pg.query<{ n: number }>(`select count(*)::int as n from ${table} where game_id = $1`, [game]);
   return result.rows[0].n;
 }
 
@@ -140,7 +166,8 @@ describe("sorteo atómico", () => {
     expect(await status()).toBe("ASSIGNED");
     expect(await count("assignments")).toBe(3);
     const settings = await pg.query<{ assignments_locked: boolean; assignment_completed_at: string | null }>(
-      "select assignments_locked, assignment_completed_at from game_settings",
+      "select assignments_locked, assignment_completed_at from game_settings where game_id = $1",
+      [gameId],
     );
     expect(settings.rows[0].assignments_locked).toBe(true);
     expect(settings.rows[0].assignment_completed_at).not.toBeNull();
@@ -216,7 +243,7 @@ describe("bloqueos después del sorteo", () => {
   it("no se pueden insertar asignaciones fuera del sorteo", async () => {
     const a = await addParticipant("Persona A", "A00000001");
     const b = await addParticipant("Persona B", "A00000002");
-    await expect(pg.query("insert into assignments (giver_id, receiver_id, source) values ($1, $2, 'GENERATED')", [a, b])).rejects.toThrow(
+    await expect(pg.query("insert into assignments (game_id, giver_id, receiver_id, source) values ($1, $2, $3, 'GENERATED')", [gameId, a, b])).rejects.toThrow(
       /ASSIGNMENTS_LOCKED/,
     );
   });
@@ -239,7 +266,7 @@ describe("permisos y RLS", () => {
       await expect(pg.query("select * from assignments")).rejects.toThrow(/permission denied/);
       await expect(pg.query("select * from game_settings")).rejects.toThrow(/permission denied/);
       await expect(pg.query("update game_settings set status = 'ASSIGNED'")).rejects.toThrow(/permission denied/);
-      await expect(pg.query("select commit_assignments('{}'::uuid[], '[]'::jsonb)")).rejects.toThrow(/permission denied/);
+      await expect(pg.query("select commit_assignments(null, '{}'::uuid[], '[]'::jsonb)")).rejects.toThrow(/permission denied/);
       await pg.exec("reset role");
     }
   });
@@ -261,5 +288,100 @@ describe("permisos y RLS", () => {
     const result = await pg.query("select id from participants");
     expect(result.rows).toHaveLength(2);
     await pg.exec("reset role");
+  });
+});
+
+describe("varios juegos independientes", () => {
+  it("el mismo código puede estar en dos juegos distintos, pero no repetido dentro de uno", async () => {
+    const otro = await createGame("Otro grupo", "otro-grupo");
+    await addParticipant("Ana", "A00123456");
+    await addParticipant("Ana en otro", "A00123456", null, false, otro);
+    await expect(addParticipant("Ana repetida", "A00123456")).rejects.toThrow(/unique|duplicate/i);
+  });
+
+  it("un papelito solo puede apuntar a alguien del mismo juego", async () => {
+    const otro = await createGame("Otro grupo", "otro-grupo");
+    const ajena = await addParticipant("Ajena", "A00000009", null, false, otro);
+    await expect(addParticipant("Mía", "A00000001", ajena, true)).rejects.toThrow(/REFERENCE_OTHER_GAME/);
+  });
+
+  it("sortear un juego no bloquea otro, y cada juego sortea con sus propios participantes", async () => {
+    const otro = await createGame("Otro grupo", "otro-grupo");
+    const a = await addParticipant("Persona A", "A00000001");
+    const b = await addParticipant("Persona B", "A00000002");
+    const x = await addParticipant("Persona X", "A00000003", null, false, otro);
+    const y = await addParticipant("Persona Y", "A00000004", null, false, otro);
+    await commit([a, b], [[a, b, "GENERATED"], [b, a, "GENERATED"]]);
+    expect(await status()).toBe("ASSIGNED");
+    expect(await status(otro)).toBe("REGISTRATION_OPEN");
+    await commit([x, y], [[x, y, "GENERATED"], [y, x, "GENERATED"]], otro);
+    expect(await status(otro)).toBe("ASSIGNED");
+  });
+
+  it("no se puede sortear con participantes de otro juego", async () => {
+    const otro = await createGame("Otro grupo", "otro-grupo");
+    const a = await addParticipant("Persona A", "A00000001");
+    const x = await addParticipant("Persona X", "A00000003", null, false, otro);
+    const y = await addParticipant("Persona Y", "A00000004", null, false, otro);
+    await expect(commit([a, x], [[a, x, "GENERATED"], [x, a, "GENERATED"]])).rejects.toThrow();
+    await expect(commit([x, y], [[x, y, "GENERATED"], [y, x, "GENERATED"]], gameId)).rejects.toThrow(/PARTICIPANTS_CHANGED/);
+    expect(await count("assignments")).toBe(0);
+  });
+
+  it("nadie puede cambiar de juego a un participante", async () => {
+    const otro = await createGame("Otro grupo", "otro-grupo");
+    const a = await addParticipant("Persona A", "A00000001");
+    await expect(pg.query("update participants set game_id = $1 where id = $2", [otro, a])).rejects.toThrow(/GAME_IMMUTABLE/);
+  });
+
+  it("el nombre del enlace (slug) es único y con formato válido", async () => {
+    await expect(createGame("Repetido", "prueba")).rejects.toThrow(/unique|duplicate/i);
+    await expect(createGame("Mal", "Mal Slug")).rejects.toThrow(/games_slug_format/);
+  });
+});
+
+describe("migración del juego existente (versión de una sola fila)", () => {
+  it("conserva participantes, papelitos y el sorteo, y los asigna al juego «grupo-8»", async () => {
+    await resetSchema();
+    await pg.exec(migration);
+    await pg.exec(photosMigration);
+    // Estado anterior: una sola fila de configuración con datos reales.
+    await pg.exec("insert into game_settings (id) values (1)");
+    const a = await pg.query<{ id: string }>(
+      `insert into participants (name, name_normalized, student_code) values ('Persona A', 'persona a', 'A00000001') returning id`,
+    );
+    const b = await pg.query<{ id: string }>(
+      `insert into participants (name, name_normalized, student_code, has_existing_assignment, reported_target_name, reported_target_id, reported_target_confirmed)
+       values ('Persona B', 'persona b', 'A00000002', true, 'Persona A', $1, true) returning id`,
+      [a.rows[0].id],
+    );
+    await pg.query("update game_settings set status = 'REGISTRATION_OPEN' where id = 1");
+
+    await pg.exec(multiGameMigration);
+    await pg.exec(multiGameMigration);
+
+    const game = await pg.query<{ id: string; slug: string; name: string }>("select id, slug, name from games");
+    expect(game.rows).toEqual([{ id: game.rows[0].id, slug: "grupo-8", name: "Grupo 8" }]);
+    const people = await pg.query<{ game_id: string }>("select game_id from participants");
+    expect(people.rows.every((row) => row.game_id === game.rows[0].id)).toBe(true);
+    const settings = await pg.query<{ game_id: string; status: string }>("select game_id, status from game_settings");
+    expect(settings.rows).toEqual([{ game_id: game.rows[0].id, status: "REGISTRATION_OPEN" }]);
+    const reported = await pg.query<{ reported_target_id: string; reported_target_confirmed: boolean }>(
+      "select reported_target_id, reported_target_confirmed from participants where id = $1",
+      [b.rows[0].id],
+    );
+    expect(reported.rows[0]).toEqual({ reported_target_id: a.rows[0].id, reported_target_confirmed: true });
+
+    // Y el sorteo nuevo funciona por juego.
+    await pg.query("select commit_assignments($1::uuid, $2::uuid[], $3::jsonb)", [
+      game.rows[0].id,
+      [a.rows[0].id, b.rows[0].id],
+      JSON.stringify([
+        { giver_id: a.rows[0].id, receiver_id: b.rows[0].id, source: "GENERATED" },
+        { giver_id: b.rows[0].id, receiver_id: a.rows[0].id, source: "EXISTING" },
+      ]),
+    ]);
+    const after = await pg.query<{ status: string }>("select status from game_settings");
+    expect(after.rows[0].status).toBe("ASSIGNED");
   });
 });

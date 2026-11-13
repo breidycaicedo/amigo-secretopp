@@ -8,11 +8,13 @@ export type PaperState = { hasPaper: "" | "yes" | "no"; target: TargetValue };
 
 /** Pregunta del papelito + selector de persona. */
 export function PaperFields({
+  gameId,
   value,
   onChange,
   candidates,
   errors,
 }: {
+  gameId: string;
   value: PaperState;
   onChange: (value: PaperState) => void;
   candidates?: PersonOption[];
@@ -55,6 +57,7 @@ export function PaperFields({
       {value.hasPaper === "yes" ? (
         <div className="pt-2 animate-rise">
           <TargetPicker
+            gameId={gameId}
             value={value.target}
             onChange={(target) => onChange({ ...value, target })}
             candidates={candidates}

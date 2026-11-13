@@ -30,7 +30,7 @@ export async function uploadPhotoAction(formData: FormData): Promise<ActionState
     if (me === null) {
       return { ok: false, message: ERRORS.SESSION_EXPIRED };
     }
-    const settings = await getSettings();
+    const settings = await getSettings(me.game_id);
     if (!canEditWishlist(settings.status, settings.allow_wishlist_edit_after_lock)) {
       return { ok: false, message: ERRORS.GAME_LOCKED };
     }
@@ -71,7 +71,7 @@ export async function deletePhotoAction(formData: FormData): Promise<ActionState
     if (me === null) {
       return { ok: false, message: ERRORS.SESSION_EXPIRED };
     }
-    const settings = await getSettings();
+    const settings = await getSettings(me.game_id);
     if (!canEditWishlist(settings.status, settings.allow_wishlist_edit_after_lock)) {
       return { ok: false, message: ERRORS.GAME_LOCKED };
     }

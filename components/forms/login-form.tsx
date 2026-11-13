@@ -9,11 +9,12 @@ import { StudentCodeInput } from "./student-code-input";
 
 const INITIAL: ActionState = { ok: false };
 
-export function LoginForm() {
+export function LoginForm({ gameId }: { gameId: string }) {
   const [state, formAction] = useActionState(loginAction, INITIAL);
   const [code, setCode] = useState("");
   return (
     <form action={formAction} className="space-y-5" noValidate>
+      <input type="hidden" name="gameId" value={gameId} />
       <StudentCodeInput
         name="studentCode"
         label="Código de estudiante"

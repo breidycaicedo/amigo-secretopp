@@ -18,7 +18,7 @@ export type AssignSummary = {
 };
 
 /** Botón "ASIGNAR TODOS" con modal de confirmación (y confirmación extra si faltan personas). */
-export function AssignAll({ summary }: { summary: AssignSummary }) {
+export function AssignAll({ gameId, summary }: { gameId: string; summary: AssignSummary }) {
   const [state, formAction] = useActionState(runAssignmentAction, INITIAL);
   const [open, setOpen] = useState(false);
   const [extraConfirmed, setExtraConfirmed] = useState(false);
@@ -90,6 +90,7 @@ export function AssignAll({ summary }: { summary: AssignSummary }) {
         className="m-auto w-[min(92vw,30rem)] rounded-3xl bg-paper p-0 text-ink shadow-lift backdrop:bg-ink/40 backdrop:backdrop-blur-sm open:animate-pop"
       >
         <form action={formAction} className="space-y-5 p-6 sm:p-7">
+          <input type="hidden" name="gameId" value={gameId} />
           <input type="hidden" name="confirm" value="1" />
           <input type="hidden" name="confirmMissing" value={extraConfirmed ? "1" : ""} />
           <div>

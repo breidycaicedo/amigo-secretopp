@@ -3,13 +3,16 @@
 import { timingSafeEqual } from "node:crypto";
 import { redirect } from "next/navigation";
 import type { ActionState } from "@/types/domain";
-import { getParticipantByCode } from "@/lib/data";
+import { getGameById, getParticipantByCode } from "@/lib/data";
 import { adminCode, adminPassword } from "@/lib/env";
 import { ERRORS } from "@/lib/errors";
 import { field } from "@/lib/form";
 import { clearFailures, isRateLimited, recordFailure } from "@/lib/rate-limit";
 import { endSession, startSession } from "@/lib/session";
+import { z } from "zod";
 import { cleanStudentCode, isValidStudentCode } from "@/lib/validation";
+
+const uuidSchema = z.string().uuid();
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -27,11 +30,19 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
   if (!isValidStudentCode(code)) {
     return { ok: false, fieldErrors: { studentCode: ERRORS.INVALID_CODE } };
   }
+  const gameId = uuidSchema.safeParse(field(formData, "gameId"));
+  if (!gameId.success) {
+    return { ok: false, message: ERRORS.GAME_NOT_FOUND };
+  }
   try {
     if (await isRateLimited("participant")) {
       return { ok: false, message: ERRORS.TOO_MANY_ATTEMPTS };
     }
-    const participant = await getParticipantByCode(code);
+    if ((await getGameById(gameId.data)) === null) {
+      return { ok: false, message: ERRORS.GAME_NOT_FOUND };
+    }
+    // El código se busca SOLO dentro de ese juego.
+    const participant = await getParticipantByCode(gameId.data, code);
     if (participant === null) {
       await recordFailure("participant");
       return { ok: false, fieldErrors: { studentCode: ERRORS.PARTICIPANT_NOT_FOUND } };
